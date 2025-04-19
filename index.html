@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Speed Shift 3D</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #a0d7e6; font-family: sans-serif; overscroll-behavior: none; touch-action: none; }
+        canvas { display: block; }
+        #loading-screen { position: absolute; width: 100%; height: 100%; background-color: #000; color: white; display: flex; justify-content: center; align-items: center; font-size: 2em; z-index: 102; opacity: 1; transition: opacity 0.5s ease-out; }
+        #loading-screen.hidden { opacity: 0; pointer-events: none; /* Allows clicks through when faded */ }
+        #ui-container { position: absolute; top: 10px; left: 10px; color: white; text-shadow: 1px 1px 3px black; z-index: 50; font-size: 1.5em; display: none; }
+        #score { margin-bottom: 5px; }
+        #start-background { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-image: url('images/start-image.jpg'); /* <-- CHANGE PATH IF NEEDED */ background-size: cover; background-position: center center; background-repeat: no-repeat; z-index: 0; display: block; /* Show initially, hidden by loading screen */ }
+        #start-screen { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 2.5em; font-weight: bold; text-align: center; text-shadow: 2px 2px 5px black; display: none; z-index: 100; }
+        #start-button { background-color: rgba(0,0,0,0.5); border: none; color: white; padding: 15px 32px; text-align: center; font-size: 1.2em; margin-top: 20px; margin-bottom: 10px; cursor: pointer; border-radius: 5px; }
+        #start-button:hover { background-color: rgba(200,0,0,0.7); }
+        #game-name { font-size: 2em; color: white; text-shadow: 2px 2px 5px black; margin-bottom: 15px; }
+        #high-score-start { font-size: 0.8em; margin-top: 5px; color: #eee; }
+        #game-over-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 101; display: none; }
+        #game-over { color: white; font-size: 5em; font-weight: bold; text-shadow: 2px 2px 5px black; margin-bottom: 10px; }
+        #game-over-scores { font-size: 1.8em; color: white; text-shadow: 1px 1px 3px black; margin-bottom: 25px; }
+        #restart-button { background-color: rgba(0,0,0,0.5); border: none; color: white; padding: 15px 32px; text-align: center; text-decoration: none; font-size: 1.5em; cursor: pointer; border-radius: 5px; }
+        #restart-button:hover { background-color: rgba(200,0,0,0.7); }
+        #audio-settings { position: absolute; top: 10px; right: 10px; color: white; text-shadow: 1px 1px 3px black; z-index: 50; font-size: 1.2em; background-color: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; display: none; }
+        #audio-settings label { display: block; margin-bottom: 5px; }
+        #audio-settings input { width: 100%; margin-bottom: 10px; }
+        .controls-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; z-index: 50; display: none; }
+        .horizontal-controls { display: flex; }
+        .control-button { font-size: 3em; color: rgba(255, 255, 255, 0.5); text-shadow: 1px 1px 2px rgba(0,0,0,0.5); padding: 10px; margin: 8px; border: 2px solid rgba(255, 255, 255, 0.3); background-color: rgba(0, 0, 0, 0.2); user-select: none; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 60px; height: 60px; border-radius: 50%; transition: background-color 0.1s ease; }
+        .control-button:active { background-color: rgba(255, 255, 255, 0.3); }
+    </style>
+</head>
+<body>
+    <!-- HTML Elements -->
+    <div id="start-background"></div>
+    <div id="loading-screen">Loading...</div>
+    <div id="container"></div> {/* Renderer attaches here */}
+
+    <div id="start-screen">
+        <div id="game-name">Speed Shift 3D</div>
+        <div id="high-score-start">High Score: 0</div>
+        <button id="start-button">Start Game</button>
+    </div>
+
+    <div id="game-over-container">
+        <div id="game-over">GAME OVER!</div>
+        <div id="game-over-scores">Score: 0 | High Score: 0</div>
+        <button id="restart-button">Restart Game</button>
+    </div>
+
+    <div id="ui-container">
+        <div id="score">Score: 0</div>
+    </div>
+
+    <div id="audio-settings">
+        <label for="bg-volume">BG Vol: <span id="bg-volume-value">0.2</span></label>
+        <input type="range" id="bg-volume" min="0" max="1" step="0.1" value="0.2">
+        <label for="sfx-volume">SFX Vol: <span id="sfx-volume-value">0.6</span></label>
+        <input type="range" id="sfx-volume" min="0" max="1" step="0.1" value="0.6">
+    </div>
+
+    <div class="controls-container">
+        <div id="up-button" class="control-button">⯅</div>
+        <div class="horizontal-controls">
+            <div id="left-button" class="control-button">⯇</div>
+            <div id="down-button" class="control-button">⯆</div>
+            <div id="right-button" class="control-button">⯈</div>
+        </div>
+    </div>
+
+    <!-- Audio Elements -->
+    <audio id="background-audio" loop> <source src="sounds/background.mp3" type="audio/mpeg"> </audio>
+    <audio id="accelerate-audio">      <source src="sounds/accelerate.mp3" type="audio/mpeg"> </audio>
+    <audio id="brake-audio">           <source src="sounds/brakes.mp3" type="audio/mpeg"> </audio>
+    <audio id="collision-audio">       <source src="sounds/collision.mp3" type="audio/mpeg"> </audio>
+    <audio id="point-collect-audio">   <source src="sounds/point.mp3" type="audio/mpeg"> </audio> {/* Use point.mp3 */}
+
+    <!-- Import Maps -->
+     <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.164.1/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/" } }
+    </script>
+
+    <!-- Main Game Script -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+        // --- Core Components ---
+        let scene, camera, renderer;
+        let ambientLight, directionalLight;
+
+        // --- Game Objects ---
+        let carModel, enemyCar;
+        let groundPlane1, groundPlane2;
+        let road, roadLines = [], kerbs = [];
+        let buildings = [], streetLights = [], trafficLights = [];
+        let obstacles = [];
+        let pointBanner; // Banner object for point feedback
+
+        // --- Constants ---
+        const roadWidth = 12, roadLength = 200, buildingSpacing = 25, lightSpacing = 30;
+        const kerbHeight = 0.3, kerbWidth = 0.4;
+        const carMoveSpeed = 0.2, baseSpeed = 3, boostSpeed = 7, brakeSpeed = 0.5;
+        const enemyCarBaseSpeed = 2.0;
+        const numObstacles = 2, obstacleConeRadius = 0.5, obstacleConeHeight = 2.5;
+        const localStorageKey = 'speedShiftHighScore';
+        const pointInterval = 5.0; // Award point every 5 seconds
+        const bannerImagePath = 'images/abc.png'; // <-- Check this path too!
+        const bannerDisplayDuration = 1; // How long banner stays visible (seconds)
+        const GRASS_REPEAT_X = 50; // <<<=== Store repeat value here
+        const GRASS_REPEAT_Y = 50; // <<<=== Store repeat value here
+        const GROUND_PLANE_LENGTH = roadLength;
+        const GROUND_PLANE_WIDTH = roadLength * 1.5; 
+        // --- Game State ---
+        let moveLeft = false, moveRight = false, isBoosting = false, isBraking = false;
+        let driveSpeed = baseSpeed, enemyCarSpeed = enemyCarBaseSpeed;
+        let carBaseY = 0.5;
+        let score = 0, highScore = 0;
+        let isGameOver = false;
+        let animationFrameId = null;
+        let pointTimer = 0; // Timer for awarding points
+        let bannerTimer = 0; // Timer for banner visibility
+
+        // --- Utility ---
+        let playerBox = new THREE.Box3(), enemyBox = new THREE.Box3();
+        let obstacleBox = new THREE.Box3();
+        const clock = new THREE.Clock(); // For delta time calculation
+        const loadingManager = new THREE.LoadingManager();
+        const textureLoader = new THREE.TextureLoader(loadingManager); // Texture loader using the manager
+        console.log("Global loadingManager and textureLoader created.");
+
+        // --- UI Elements References ---
+        const loadingScreen = document.getElementById('loading-screen');
+        const startBackground = document.getElementById('start-background');
+        const uiContainer = document.getElementById('ui-container');
+        const scoreElement = document.getElementById('score');
+        const startScreen = document.getElementById('start-screen');
+        const startButton = document.getElementById('start-button');
+        const highScoreStartElement = document.getElementById('high-score-start');
+        const gameOverContainer = document.getElementById('game-over-container');
+        const gameOverElement = document.getElementById('game-over');
+        const gameOverScoresElement = document.getElementById('game-over-scores');
+        const restartButton = document.getElementById('restart-button');
+        const audioSettings = document.getElementById('audio-settings');
+        const controlsContainer = document.querySelector('.controls-container');
+        const leftButton = document.getElementById('left-button');
+        const rightButton = document.getElementById('right-button');
+        const upButton = document.getElementById('up-button');
+        const downButton = document.getElementById('down-button');
+        // --- Audio Elements ---
+        const backgroundAudio = document.getElementById('background-audio');
+        const accelerateAudio = document.getElementById('accelerate-audio');
+        const brakeAudio = document.getElementById('brake-audio');
+        const collisionAudio = document.getElementById('collision-audio');
+        const pointCollectAudio = document.getElementById('point-collect-audio');
+
+        // --- Audio Controls ---
+        const bgVolumeControl = document.getElementById('bg-volume');
+        const sfxVolumeControl = document.getElementById('sfx-volume');
+        const bgVolumeValue = document.getElementById('bg-volume-value');
+        const sfxVolumeValue = document.getElementById('sfx-volume-value');
+
+        // ==================================================
+        // FUNCTION DEFINITIONS (Define before calling)
+        // ==================================================
+
+        // Helper: Kerb Texture
+        function createKerbTexture() {
+             const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); canvas.width = 64; canvas.height = 16; const stripeWidth = 16; const colors = ['#000000', '#fffb00']; for (let i = 0; i < canvas.width / stripeWidth; i++) { ctx.fillStyle = colors[i % 2]; ctx.fillRect(i * stripeWidth, 0, stripeWidth, canvas.height); } const texture = new THREE.CanvasTexture(canvas); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.ClampToEdgeWrapping; texture.repeat.set(roadLength / 4, 1); texture.needsUpdate = true; return texture;
+        }
+
+        // Helper: Street Light
+        function createStreetLight(poleMat, lightMat) {
+            const group = new THREE.Group(); const poleHeight = 6; const poleRadius = 0.1; const armLength = 1.5;
+            const poleGeo = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight); const pole = new THREE.Mesh(poleGeo, poleMat); pole.castShadow = true; pole.position.y = poleHeight / 2; group.add(pole);
+            const armGeo = new THREE.BoxGeometry(armLength, poleRadius * 1.5, poleRadius * 1.5); const arm = new THREE.Mesh(armGeo, poleMat); arm.castShadow = true; arm.position.set(armLength / 2 - poleRadius, poleHeight - poleRadius * 2, 0); group.add(arm);
+            const lightFixtureGeo = new THREE.SphereGeometry(poleRadius * 2.5, 16, 8); const lightFixture = new THREE.Mesh(lightFixtureGeo, lightMat); lightFixture.position.set(armLength - poleRadius, poleHeight - poleRadius * 2, 0); group.add(lightFixture);
+            return group;
+        }
+
+        // Helper: Traffic Light
+        function createTrafficLight() {
+            const group = new THREE.Group(); const poleHeight = 5; const poleRadius = 0.15; const housingWidth = 0.5; const housingHeight = 1.2; const housingDepth = 0.3; const lightRadius = housingWidth * 0.25;
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.5 }); const housingMat = new THREE.MeshStandardMaterial({ color: 0x333333 }); const redMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xaa0000, emissiveIntensity: 1 }); const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0xaaaa00, emissiveIntensity: 1 }); const greenMat = new THREE.MeshStandardMaterial({ color: 0x00ff00, emissive: 0x00aa00, emissiveIntensity: 1 });
+            const poleGeo = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight); const pole = new THREE.Mesh(poleGeo, poleMat); pole.position.y = poleHeight / 2; pole.castShadow = true; group.add(pole);
+            const housingGeo = new THREE.BoxGeometry(housingWidth, housingHeight, housingDepth); const housing = new THREE.Mesh(housingGeo, housingMat); housing.position.set(housingWidth / 2, poleHeight - housingHeight / 2, 0); housing.castShadow = true; group.add(housing);
+            const lightGeo = new THREE.SphereGeometry(lightRadius, 16, 8); const lightYOffset = housingHeight * 0.3; const lightZOffset = housingDepth / 2 + 0.01;
+            const redLight = new THREE.Mesh(lightGeo, redMat); redLight.position.set(0, lightYOffset, lightZOffset); housing.add(redLight);
+            const yellowLight = new THREE.Mesh(lightGeo, yellowMat); yellowLight.position.set(0, 0, lightZOffset); housing.add(yellowLight);
+            const greenLight = new THREE.Mesh(lightGeo, greenMat); greenLight.position.set(0, -lightYOffset, lightZOffset); housing.add(greenLight);
+            return group;
+        }
+
+        // High Score Functions
+        function loadHighScore() {
+            try { const storedScore = localStorage.getItem(localStorageKey); highScore = storedScore ? parseInt(storedScore, 10) : 0; console.log("Loaded high score:", highScore); } catch (e) { console.error("Error loading high score:", e); highScore = 0; }
+        }
+        function saveHighScore() {
+            if (score > highScore) { try { highScore = score; localStorage.setItem(localStorageKey, highScore.toString()); console.log("New high score saved:", highScore); } catch (e) { console.error("Error saving high score:", e); } }
+        }
+        function displayHighScore() {
+            if (highScoreStartElement) { highScoreStartElement.textContent = `High Score: ${highScore}`; }
+            if (gameOverScoresElement) { gameOverScoresElement.textContent = `Score: ${score} | High Score: ${highScore}`; }
+        }
+
+        // Initialization Function
+        function init() {
+            console.log("init() function started.");
+            try {
+                // Hide elements initially
+                if (startScreen) startScreen.style.display = 'none';
+                if (gameOverContainer) gameOverContainer.style.display = 'none';
+                if (uiContainer) uiContainer.style.display = 'none';
+                if (audioSettings) audioSettings.style.display = 'none';
+                if (controlsContainer) controlsContainer.style.display = 'none';
+
+                // --- Essential Scene Setup ---
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0xa0d7e6);
+                scene.fog = new THREE.Fog(0xa0d7e6, roadLength * 0.2, roadLength * 0.9);
+
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                camera.position.set(0, 5, -7); camera.lookAt(0, 1, 0);
+
+                renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+                renderer.outputColorSpace = THREE.SRGBColorSpace; // Set color space for output
+
+                const container = document.getElementById('container');
+                if (!container) throw new Error("FATAL: #container element not found!");
+                container.appendChild(renderer.domElement);
+
+                // --- Lights ---
+                ambientLight = new THREE.AmbientLight(0xffffff, 0.7); scene.add(ambientLight);
+                directionalLight = new THREE.DirectionalLight(0xffffff, 1.8); directionalLight.position.set(50, 100, 50); directionalLight.castShadow = true; directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048; directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 300; directionalLight.shadow.camera.left = -roadWidth * 3; directionalLight.shadow.camera.right = roadWidth * 3; directionalLight.shadow.camera.top = roadLength * 0.6; directionalLight.shadow.camera.bottom = -roadLength * 0.6; scene.add(directionalLight);
+
+                // --- Environment (Road, Ground, Kerbs, Lines) ---
+                console.log("Loading grass texture...");
+                const grassTexture = textureLoader.load(
+                    'images/grass.jpg', 
+
+                    (texture) => { // onLoad callback
+                        console.log("Grass texture loaded successfully.");
+                        texture.wrapS = THREE.RepeatWrapping; // Horizontal repeat
+                        texture.wrapT = THREE.RepeatWrapping; // Vertical repeat
+                        // Ground ka size: roadLength * 1.5 by roadLength
+                        // Example: Repeat texture 50 times in each direction
+                        // Adjust these values for desired grass scale
+                        const repeatX = 50;
+                        const repeatY = 50;
+                        texture.repeat.set(GRASS_REPEAT_X, GRASS_REPEAT_Y); 
+                        texture.colorSpace = THREE.SRGBColorSpace; // Correct color space
+
+                        // Optional: Improve texture quality at angles
+                        if (renderer && renderer.capabilities) {
+                             texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                        }
+                        texture.needsUpdate = true; // Ensure changes are applied
+                    },
+                    undefined, // onProgress not needed here
+                    (err) => { // onError callback
+                        console.error("Error loading grass texture 'images/grass.jpg':", err);
+                        // Fallback color will be used if texture fails
+                    }
+                );
+                
+                 grassTexture.repeat.set(GRASS_REPEAT_X, GRASS_REPEAT_Y); 
+                const groundGeo = new THREE.PlaneGeometry(GROUND_PLANE_WIDTH, GROUND_PLANE_LENGTH); // Use new constants for size
+            const groundMat = new THREE.MeshStandardMaterial({
+                map: grassTexture,
+                side: THREE.DoubleSide,
+                roughness: 0.9,
+                metalness: 0.0
+            });
+
+            // Create Plane 1
+            groundPlane1 = new THREE.Mesh(groundGeo, groundMat);
+            groundPlane1.rotation.x = -Math.PI / 2;
+            groundPlane1.position.y = -0.05;
+            groundPlane1.position.z = GROUND_PLANE_LENGTH / 2; // Start first plane centered at origin, extending forward
+            groundPlane1.receiveShadow = true;
+            scene.add(groundPlane1);
+
+            // Create Plane 2 (clone of Plane 1)
+            groundPlane2 = groundPlane1.clone();
+            // Position Plane 2 directly behind Plane 1
+            groundPlane2.position.z = groundPlane1.position.z + GROUND_PLANE_LENGTH;
+            scene.add(groundPlane2);
+
+            console.log("Two ground planes created and positioned."); 
+
+const roadGeo = new THREE.PlaneGeometry(roadWidth, roadLength); // Road length might need adjustment if ground planes change significantly
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555, side: THREE.DoubleSide });
+            road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = 0.0; // Slightly above ground
+            road.receiveShadow = true;
+            scene.add(road);
+
+const lineLength = 4; 
+const lineGap = 4; 
+const numLines = Math.floor(roadLength / (lineLength + lineGap)); 
+const lineGeo = new THREE.PlaneGeometry(0.3, lineLength); 
+const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide }); 
+for (let i = 0; i < numLines; i++) { const line = new THREE.Mesh(lineGeo, lineMat); 
+line.rotation.x = -Math.PI / 2; 
+line.position.y = 0.005; line.position.z = (roadLength / 2) - (lineLength / 2) - i * (lineLength + lineGap); roadLines.push(line); 
+scene.add(line); }
+                
+
+      const kerbTexture = createKerbTexture(); const kerbGeo = new THREE.BoxGeometry(kerbWidth, kerbHeight, roadLength); const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTexture }); const kerbLeft = new THREE.Mesh(kerbGeo, kerbMat); kerbLeft.position.set(-(roadWidth / 2) - (kerbWidth / 2), kerbHeight / 2, 0); kerbLeft.castShadow = true; kerbLeft.receiveShadow = true; scene.add(kerbLeft); kerbs.push(kerbLeft); const kerbRight = new THREE.Mesh(kerbGeo, kerbMat.clone()); kerbRight.position.set((roadWidth / 2) + (kerbWidth / 2), kerbHeight / 2, 0); kerbRight.castShadow = true; kerbRight.receiveShadow = true; scene.add(kerbRight); kerbs.push(kerbRight);
+
+                // =============================================
+                // ===== BUILDING TEXTURE LOADING & SETUP ======
+                // =============================================
+                console.log("Loading building textures...");
+                let buildingTextures = []; // Array to hold loaded textures
+                const buildingTexturePaths = [
+                    'images/building1.jpg', // <<< VERIFY THIS PATH
+                    'images/building2.jpg', // <<< VERIFY THIS PATH
+                    'images/building3.jpg',  // <<< VERIFY THIS PATH
+                    'images/building4.jpg', // <<< VERIFY THIS PATH
+                    'images/building5.jpg', // <<< VERIFY THIS PATH
+                    'images/building6.jpg'  // <<< VERIFY THIS PATH
+                ];
+
+                try {
+                    buildingTextures = buildingTexturePaths.map(path => {
+                        const texture = textureLoader.load(
+                            path,
+                            () => { console.log(`Loaded texture: ${path}`); },
+                            undefined, // onProgress not needed here
+                            (err) => { console.error(`Error loading texture ${path}:`, err); } // Log error if specific texture fails
+                        );
+                        texture.colorSpace = THREE.SRGBColorSpace; // Important for correct colors
+                        return texture;
+                    });
+                    console.log("Building texture loading initiated (may complete asynchronously).");
+                } catch (error) {
+                    console.error("Error setting up building texture loading:", error);
+                }
+
+                // Fallback material if textures fail or aren't ready
+                const fallbackBuildingMaterial = new THREE.MeshStandardMaterial({
+                     color: 0xcccccc, // Simple grey
+                     roughness: 0.8,
+                     metalness: 0.1
+                 });
+                // =============================================
+                // ======== END OF BUILDING PREPARATION =======
+                // =============================================
+
+
+                // --- Buildings Generation (MODIFIED to use textures) ---
+                const numBuildings = Math.floor(roadLength / buildingSpacing);
+                console.log(`Generating ${numBuildings * 2} building sides...`);
+
+                for (let i = 0; i < numBuildings; i++) {
+                    const height = Math.random() * 30 + 10;
+                    const width = Math.random() * 8 + 4;
+                    const depth = Math.random() * 8 + 4;
+                    const buildingGeo = new THREE.BoxGeometry(width, height, depth);
+
+                    // --- Select Texture and Create Material ---
+                    let selectedTexture = null;
+                    if (buildingTextures.length > 0) {
+                        const randomTextureIndex = Math.floor(Math.random() * buildingTextures.length);
+                        selectedTexture = buildingTextures[randomTextureIndex];
+                    }
+
+                    // Use selected texture if valid, otherwise use fallback
+                    const buildingMat = (selectedTexture && selectedTexture instanceof THREE.Texture)
+                        ? new THREE.MeshStandardMaterial({
+                              map: selectedTexture,
+                              roughness: 0.8,
+                              metalness: 0.1
+                          })
+                        : fallbackBuildingMaterial.clone(); // Use fallback if texture issue
+
+                    // --- Create Building Meshes (for both sides of the road) ---
+                    [-1, 1].forEach(side => {
+                        const building = new THREE.Mesh(buildingGeo, buildingMat); // Use the textured material
+
+                        // Set position and properties
+                        building.position.y = height / 2; // Center vertically
+                        building.castShadow = true;
+                        building.receiveShadow = true;
+                        const zPos = (roadLength / 2) - (buildingSpacing / 2) - i * buildingSpacing + (Math.random() - 0.5) * buildingSpacing;
+                        const xOffset = roadWidth / 2 + kerbWidth + 1 + Math.random() * 5 + width / 2;
+                        building.position.set(side * xOffset, height / 2, zPos); // Set final position
+
+                        buildings.push(building);
+                        scene.add(building);
+                    });
+                }
+                console.log("Building generation loop finished.");
+                // =============================================
+                // ===== END OF BUILDING GENERATION LOOP =======
+                // =============================================
+
+                // --- Street Lights & Traffic Lights (Keep original code) ---
+                const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.4 }); const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xeeee00, emissiveIntensity: 0.5 }); const numLights = Math.floor(roadLength / lightSpacing); for (let i = 0; i < numLights; i++) { [-1, 1].forEach(side => { const light = createStreetLight(poleMat, lightMat); if(light) { const zPos = (roadLength / 2) - (lightSpacing / 2) - i * lightSpacing + (Math.random() - 0.5) * lightSpacing; const xPos = roadWidth / 2 + kerbWidth + 0.8; light.position.set(side * xPos, 0, zPos); light.rotation.y = side * -Math.PI / 2; streetLights.push(light); scene.add(light); } else { console.error("createStreetLight returned undefined!"); } }); }
+                const trafficLightZ = roadLength * 0.3; const trafficLightX = roadWidth / 2 + kerbWidth + 0.5; [-1, 1].forEach(side => { const light = createTrafficLight(); if(light) { light.position.set(side * trafficLightX, 0, trafficLightZ); light.rotation.y = side * -Math.PI / 2; trafficLights.push(light); scene.add(light); } else { console.error("createTrafficLight returned undefined!"); } });
+
+                // --- Obstacles (Keep original code) ---
+                const obstacleGeometry = new THREE.ConeGeometry(obstacleConeRadius, obstacleConeHeight, 16); const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); for (let i = 0; i < numObstacles; i++) { const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial); obstacle.castShadow = true; obstacle.receiveShadow = true; resetObstaclePosition(obstacle, true); obstacles.push(obstacle); scene.add(obstacle); }
+
+                // --- Point Banner (Keep original code) ---
+                const bannerTexture = textureLoader.load(bannerImagePath, undefined, undefined, (err) => console.error("Error loading banner image:", err)); // Added error log
+                bannerTexture.colorSpace = THREE.SRGBColorSpace;
+                const bannerAspectRatio = 2; const bannerWidth = 3; const bannerHeight = bannerWidth / bannerAspectRatio;
+                const bannerGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight);
+                const bannerMat = new THREE.MeshBasicMaterial({ map: bannerTexture, transparent: true, side: THREE.DoubleSide });
+                pointBanner = new THREE.Mesh(bannerGeo, bannerMat);
+                pointBanner.rotation.x = -Math.PI / 2; // Adjusted rotation for visibility if needed
+                pointBanner.position.y = 0.05; // Slightly above the road
+                pointBanner.visible = false;
+                console.log("About to add pointBanner. Is scene defined?", scene);
+                if (scene) { scene.add(pointBanner); console.log("Point banner added to scene."); }
+                else { console.error("Cannot add pointBanner because scene is undefined!"); }
+
+                // --- Car Model Loading (Keep original code) ---
+                const loader = new GLTFLoader(loadingManager); const dracoLoader = new DRACOLoader(loadingManager); dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/'); loader.setDRACOLoader(dracoLoader); const carUrl = 'https://threejs.org/examples/models/gltf/ferrari.glb';
+                loader.load(carUrl, (gltf) => {
+                    carModel = gltf.scene; carModel.scale.set(0.8, 0.8, 0.8); const box = new THREE.Box3().setFromObject(carModel); carBaseY = -box.min.y + 0.01; carModel.position.set(0, carBaseY, 0); carModel.rotation.y = Math.PI; carModel.traverse((node) => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; } }); scene.add(carModel);
+                    enemyCar = carModel.clone(); enemyCar.traverse((node) => { if (node.isMesh) { const blueMaterial = node.material.clone(); blueMaterial.color.setHex(0x0055ff); node.material = blueMaterial; node.castShadow = true; node.receiveShadow = true; } }); const initialEnemyX = (Math.random() < 0.5 ? -1 : 1) * roadWidth / 4; enemyCar.position.set(initialEnemyX, carBaseY, roadLength * 0.2); enemyCar.rotation.y = Math.PI; scene.add(enemyCar);
+                    camera.position.set(0, carBaseY + 4, carModel.position.z - 7); camera.lookAt(carModel.position.x, carBaseY + 1, carModel.position.z + 5);
+                    console.log("Car model loaded successfully.");
+                }, undefined, (error) => {
+                    console.error('Error loading car model:', error);
+                    const fallbackGeo = new THREE.BoxGeometry(2, 1, 4); const fallbackMat = new THREE.MeshStandardMaterial({color: 0xff0000}); carModel = new THREE.Mesh(fallbackGeo, fallbackMat); carBaseY = 0.5 + 0.01; carModel.position.set(0, carBaseY, 0); carModel.castShadow = true; carModel.receiveShadow = true; scene.add(carModel);
+                    enemyCar = carModel.clone(); enemyCar.material = new THREE.MeshStandardMaterial({color: 0x0000ff}); const initialEnemyX = (Math.random() < 0.5 ? -1 : 1) * roadWidth / 4; enemyCar.position.set(initialEnemyX, carBaseY, roadLength * 0.2); scene.add(enemyCar);
+                    camera.position.set(0, carBaseY + 4, -7); camera.lookAt(0, carBaseY + 1, 5);
+                    if(loadingScreen) loadingScreen.textContent = 'Error loading car. Using fallback.';
+                });
+
+                // --- Event Listeners & Initial UI (Keep original code) ---
+                window.addEventListener('resize', onWindowResize, false);
+                if(bgVolumeControl) bgVolumeControl.addEventListener('input', updateAudioVolumes); else console.warn("init: bgVolumeControl is null");
+                if(sfxVolumeControl) sfxVolumeControl.addEventListener('input', updateAudioVolumes); else console.warn("init: sfxVolumeControl is null");
+                updateScoreDisplay();
+                updateAudioVolumes();
+                console.log("init() function finished successfully.");
+
+            } catch (error) {
+                console.error("Error during init():", error);
+                if(loadingScreen) { loadingScreen.textContent = 'Initialization Error! Check console.'; loadingScreen.style.opacity = 1; loadingScreen.classList.remove('hidden'); }
+            }
+        } // <<< END OF init() FUNCTION
+
+        // Game Flow Functions
+        function startGame() {
+            console.log("startGame() function initiated!");
+            try {
+                isGameOver = false; score = 0; driveSpeed = baseSpeed; enemyCarSpeed = enemyCarBaseSpeed;
+                pointTimer = 0; bannerTimer = 0;
+                if (pointBanner) pointBanner.visible = false;
+
+                updateScoreDisplay();
+
+                if(startScreen) startScreen.style.display = 'none'; else console.warn("startGame: startScreen is null");
+                if(startBackground) startBackground.style.display = 'none'; else console.warn("startGame: startBackground is null");
+                if(gameOverContainer) gameOverContainer.style.display = 'none'; else console.warn("startGame: gameOverContainer is null");
+                if(uiContainer) uiContainer.style.display = 'block'; else console.warn("startGame: uiContainer is null");
+                if(audioSettings) audioSettings.style.display = 'block'; else console.warn("startGame: audioSettings is null");
+                if(controlsContainer) controlsContainer.style.display = 'flex'; else console.warn("startGame: controlsContainer is null");
+
+                resetGamePositions();
+                startBackgroundAudio();
+
+                if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+                clock.start(); // Start the clock for delta time
+                animate(); // Start the loop
+                console.log("startGame() finished, animation loop started.");
+
+            } catch (error) { console.error("Error occurred within startGame function:", error); }
+        }
+
+        function triggerGameOver() {
+            if (isGameOver) return; console.log("Game Over!"); isGameOver = true;
+            clock.stop(); // Stop the clock
+            stopAllSounds(); if (collisionAudio) { collisionAudio.currentTime = 0; collisionAudio.play().catch(e => {}); }
+            saveHighScore();
+            if(gameOverScoresElement) gameOverScoresElement.textContent = `Score: ${score} | High Score: ${highScore}`; else console.warn("triggerGameOver: gameOverScoresElement is null");
+            if(gameOverContainer) gameOverContainer.style.display = 'block'; else console.warn("triggerGameOver: gameOverContainer is null");
+            if(uiContainer) uiContainer.style.display = 'none'; else console.warn("triggerGameOver: uiContainer is null");
+            if(audioSettings) audioSettings.style.display = 'none'; else console.warn("triggerGameOver: audioSettings is null");
+            if(controlsContainer) controlsContainer.style.display = 'none'; else console.warn("triggerGameOver: controlsContainer is null");
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+        }
+
+        function restartGame() {
+             console.log("Restarting game..."); isGameOver = false; score = 0; driveSpeed = baseSpeed; enemyCarSpeed = enemyCarBaseSpeed; moveLeft = false; moveRight = false; isBoosting = false; isBraking = false;
+             pointTimer = 0; bannerTimer = 0;
+             if (pointBanner) pointBanner.visible = false;
+
+            if(gameOverContainer) gameOverContainer.style.display = 'none'; else console.warn("restartGame: gameOverContainer is null");
+            if(uiContainer) uiContainer.style.display = 'block'; else console.warn("restartGame: uiContainer is null");
+            if(audioSettings) audioSettings.style.display = 'block'; else console.warn("restartGame: audioSettings is null");
+            if(controlsContainer) controlsContainer.style.display = 'flex'; else console.warn("restartGame: controlsContainer is null");
+
+            updateScoreDisplay(); displayHighScore(); resetGamePositions(); startBackgroundAudio();
+
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+            clock.start(); // Restart the clock
+            animate(); // Start the loop
+            console.log("restartGame() finished, animation loop started.");
+        }
+
+        function resetGamePositions() {
+             try {
+                 if (carModel) { carModel.position.set(0, carBaseY, 0); if(camera) camera.position.x = 0; }
+                 if (enemyCar) { const initialEnemyX = (Math.random() < 0.5 ? -1 : 1) * roadWidth / 4; enemyCar.position.set(initialEnemyX, carBaseY, roadLength * 0.2); }
+                 obstacles.forEach(obstacle => resetObstaclePosition(obstacle, true));
+                 if (pointBanner) pointBanner.visible = false;
+                 console.log("Game positions reset.");
+             } catch (e) { console.error("Error resetting game positions:", e); }
+        }
+
+        // Controls Setup
+        function setupControls() {
+            // --- Keyboard Listeners ---
+             window.addEventListener('keydown', (event) => {
+                if (isGameOver) return;
+                switch (event.key.toLowerCase()) {
+                    case 'arrowleft':
+                    case 'a':
+                        moveRight = true; // Left key controls moveRight flag (as per original)
+                        break;
+                    case 'arrowright':
+                    case 'd':
+                        moveLeft = true;  // Right key controls moveLeft flag (as per original)
+                        break;
+                    case 'arrowup':
+                    case 'w': handleUpInputStart(); break;
+                    case 'arrowdown':
+                    case 's': handleDownInputStart(); break;
+                }
+            });
+
+            window.addEventListener('keyup', (event) => {
+                 switch (event.key.toLowerCase()) {
+                    case 'arrowleft':
+                    case 'a':
+                         moveRight = false;
+                         break;
+                     case 'arrowright':
+                     case 'd':
+                         moveLeft = false;
+                         break;
+                    case 'arrowup':
+                    case 'w': handleUpInputEnd(); break;
+                    case 'arrowdown':
+                    case 's': handleDownInputEnd(); break;
+                }
+            });
+
+            // --- Touch Listeners for Buttons --- (Matching original keyboard logic)
+            const onLeftTouchStart = (e) => { if (!isGameOver) { e.preventDefault(); moveRight = true; } };
+            const onLeftTouchEnd = (e) => { e.preventDefault(); moveRight = false; };
+
+            const onRightTouchStart = (e) => { if (!isGameOver) { e.preventDefault(); moveLeft = true; } };
+            const onRightTouchEnd = (e) => { e.preventDefault(); moveLeft = false; };
+
+            const onUpTouchStart = (e) => { if (!isGameOver) { e.preventDefault(); handleUpInputStart(); } };
+            const onUpTouchEnd = (e) => { e.preventDefault(); handleUpInputEnd(); };
+
+            const onDownTouchStart = (e) => { if (!isGameOver) { e.preventDefault(); handleDownInputStart(); } };
+            const onDownTouchEnd = (e) => { e.preventDefault(); handleDownInputEnd(); };
+
+            // Attach touch listeners
+            if (leftButton) {
+                leftButton.addEventListener('touchstart', onLeftTouchStart, { passive: false });
+                leftButton.addEventListener('touchend', onLeftTouchEnd, { passive: false });
+                leftButton.addEventListener('touchcancel', onLeftTouchEnd, { passive: false });
+            }
+            if (rightButton) {
+                rightButton.addEventListener('touchstart', onRightTouchStart, { passive: false });
+                rightButton.addEventListener('touchend', onRightTouchEnd, { passive: false });
+                rightButton.addEventListener('touchcancel', onRightTouchEnd, { passive: false });
+            }
+            if (upButton) {
+               upButton.addEventListener('touchstart', onUpTouchStart, { passive: false });
+               upButton.addEventListener('touchend', onUpTouchEnd, { passive: false });
+               upButton.addEventListener('touchcancel', onUpTouchEnd, { passive: false });
+            }
+            if (downButton) {
+             downButton.addEventListener('touchstart', onDownTouchStart, { passive: false });
+             downButton.addEventListener('touchend', onDownTouchEnd, { passive: false });
+             downButton.addEventListener('touchcancel', onDownTouchEnd, { passive: false });
+            }
+
+            // --- Button Listeners for Start/Restart ---
+            startButton.addEventListener('click', startGame);
+            restartButton.addEventListener('click', restartGame);
+        }
+
+        // --- Shared Input Handlers for Up/Down (Keyboard/Touch) ---
+        function handleUpInputStart() {
+            if (!isBoosting && !isGameOver) {
+                isBoosting = true; isBraking = false; driveSpeed = boostSpeed;
+                if(accelerateAudio) { accelerateAudio.currentTime = 0; accelerateAudio.play().catch(e => {}); }
+            }
+        }
+        function handleUpInputEnd() {
+            if (isBoosting) { isBoosting = false; if (!isBraking) { driveSpeed = baseSpeed; } if(accelerateAudio && !accelerateAudio.paused) accelerateAudio.pause(); }
+        }
+        function handleDownInputStart() {
+            if (!isBraking && !isGameOver) {
+                isBraking = true; isBoosting = false; driveSpeed = brakeSpeed;
+                if(brakeAudio) { brakeAudio.currentTime = 0; brakeAudio.play().catch(e => {}); }
+                if(accelerateAudio && !accelerateAudio.paused) accelerateAudio.pause();
+            }
+        }
+        function handleDownInputEnd() {
+            if (isBraking) { isBraking = false; if (!isBoosting) { driveSpeed = baseSpeed; } if(brakeAudio && !brakeAudio.paused) brakeAudio.pause(); }
+        }
+
+        // Utility Functions
+        function resetObstaclePosition(obstacle, initial = false) {
+            try {
+                const laneCenterOffset = roadWidth / 4;
+                obstacle.position.x = (Math.random() < 0.5 ? -1 : 1) * laneCenterOffset * (0.8 + Math.random() * 0.4); // Add some variation within lane
+                obstacle.position.y = obstacleConeHeight / 2 + 0.01; // Place base on road
+                const baseZ = initial ? roadLength * 0.2 : roadLength / 2; // Start further ahead initially
+                const randomZSpread = initial ? roadLength * 0.7 : roadLength * 0.8; // Spread them out more
+                obstacle.position.z = baseZ + Math.random() * randomZSpread;
+                obstacle.visible = true;
+            } catch (e) { console.error("Error resetting obstacle position:", e, obstacle); }
+        }
+
+        function updateScoreDisplay() { if (scoreElement) scoreElement.textContent = `Score: ${score}`; else console.warn("updateScoreDisplay: scoreElement is null"); }
+        function updateAudioVolumes() { try { const bgVolume = bgVolumeControl ? parseFloat(bgVolumeControl.value) : 0.2; const sfxVolume = sfxVolumeControl ? parseFloat(sfxVolumeControl.value) : 0.3; if (backgroundAudio) backgroundAudio.volume = bgVolume; if(bgVolumeValue) bgVolumeValue.textContent = bgVolume.toFixed(1); if (accelerateAudio) accelerateAudio.volume = sfxVolume; if (brakeAudio) brakeAudio.volume = sfxVolume; if (collisionAudio) collisionAudio.volume = sfxVolume; if (pointCollectAudio) pointCollectAudio.volume = sfxVolume; if(sfxVolumeValue) sfxVolumeValue.textContent = sfxVolume.toFixed(1); } catch (e) { console.error("Error updating audio volumes:", e); } }
+        function onWindowResize() { if(camera && renderer) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); } }
+        function stopAllSounds() { if (backgroundAudio) backgroundAudio.pause(); if (accelerateAudio) accelerateAudio.pause(); if (brakeAudio) brakeAudio.pause(); }
+        function startBackgroundAudio() { if (backgroundAudio && backgroundAudio.paused) { backgroundAudio.currentTime = 0; backgroundAudio.play().catch(e => { console.warn("Background audio play failed.", e); }); } }
+        function showPointBanner() {
+            if (!pointBanner || !carModel) return;
+            try {
+                const bannerX = carModel.position.x; // Center above car
+                const bannerZ = carModel.position.z + 15; // Place ahead of car slightly
+                pointBanner.position.set(bannerX, pointBanner.position.y, bannerZ);
+                pointBanner.visible = true;
+                bannerTimer = bannerDisplayDuration;
+            } catch (e) { console.error("Error showing point banner:", e); }
+        }
+
+        // Main Animation Loop
+        function animate() {
+            if (isGameOver) { animationFrameId = null; return; }
+            animationFrameId = requestAnimationFrame(animate);
+            const delta = clock.getDelta(); // Time since last frame
+
+            try {
+                // --- Timed Point Award ---
+                pointTimer += delta;
+                if (pointTimer >= pointInterval) {
+                    score += 1; pointTimer = 0; // Reset timer accurately
+                    updateScoreDisplay(); showPointBanner();
+                    if (pointCollectAudio) { pointCollectAudio.currentTime = 0; pointCollectAudio.play().catch(e => {}); }
+                }
+                // --- Banner Visibility Timer ---
+                if (bannerTimer > 0) { bannerTimer -= delta; if (bannerTimer <= 0) { if (pointBanner) pointBanner.visible = false; } }
+
+
+                const speedMultiplier = 1 + Math.min(score / 200, 1.0); // Faster increase, lower cap
+                const currentBaseSpeed = baseSpeed * speedMultiplier;
+                const currentBoostSpeed = boostSpeed * speedMultiplier;
+                const currentEnemySpeed = enemyCarBaseSpeed * speedMultiplier;
+                let currentDriveSpeed = isBoosting ? currentBoostSpeed : (isBraking ? brakeSpeed : currentBaseSpeed);
+                const actualDeltaZ = currentDriveSpeed * delta * 60; // Scale movement by delta time (assuming target 60fps)
+
+                // --- Scenery Movement (Use actualDeltaZ) ---
+                roadLines.forEach(line => { line.position.z -= actualDeltaZ; if (line.position.z < -roadLength / 2) { line.position.z += roadLength; } });
+                buildings.forEach(building => { if(!building?.geometry?.parameters) return; building.position.z -= actualDeltaZ; if (building.position.z < -roadLength / 2 - building.geometry.parameters.depth) { building.position.z += roadLength + Math.random() * buildingSpacing * 4; const sideSign = Math.sign(building.position.x); const xOffset = roadWidth / 2 + kerbWidth + 1 + Math.random() * 5 + building.geometry.parameters.width / 2; building.position.x = sideSign * xOffset; } });
+                streetLights.forEach(light => { light.position.z -= actualDeltaZ; if (light.position.z < -roadLength / 2 - 5) { light.position.z += roadLength + Math.random() * lightSpacing * 4; } });
+                trafficLights.forEach(light => { light.position.z -= actualDeltaZ; if (light.position.z < -roadLength / 2 - 10) { light.position.z += roadLength * 1.5 + Math.random() * roadLength; } });
+                kerbs.forEach(kerb => { kerb.position.z -= actualDeltaZ; if (kerb.position.z < -roadLength / 2) { kerb.position.z += roadLength; } });
+                if(pointBanner.visible) { pointBanner.position.z -= actualDeltaZ; } // Move banner with scene
+                if (groundPlane1 && groundPlane2) {
+                    groundPlane1.position.z -= actualDeltaZ;
+                    groundPlane2.position.z -= actualDeltaZ;
+                }
+               
+                 if (groundPlane1 && groundPlane2) {
+                    // Check if Plane 1 has moved completely past the camera's typical view (e.g., behind the car)
+                    // We check its *front edge* position (center z - half length)
+                    if (groundPlane1.position.z + GROUND_PLANE_LENGTH / 2 < camera.position.z - roadLength * 0.1) { // Adjust threshold as needed
+                        // Move Plane 1 to be in front of Plane 2
+                        groundPlane1.position.z = groundPlane2.position.z + GROUND_PLANE_LENGTH;
+                        console.log("Recycled Plane 1");
+                    }
+                    // Check Plane 2 similarly
+                    else if (groundPlane2.position.z + GROUND_PLANE_LENGTH / 2 < camera.position.z - roadLength * 0.1) {
+                        // Move Plane 2 to be in front of Plane 1
+                        groundPlane2.position.z = groundPlane1.position.z + GROUND_PLANE_LENGTH;
+                         console.log("Recycled Plane 2");
+                    }
+                }
+
+                // --- Obstacles Movement & Recycling (Use actualDeltaZ) ---
+                obstacles.forEach(obstacle => { if (!obstacle.visible) return; obstacle.position.z -= actualDeltaZ; if (obstacle.position.z < camera.position.z - roadLength / 2) { resetObstaclePosition(obstacle); } });
+
+                // --- Enemy Car Movement (Use delta time) ---
+                if (enemyCar) { enemyCar.position.z -= currentEnemySpeed * delta * 60; if (enemyCar.position.z < -roadLength / 2 - 20) { enemyCar.position.z = roadLength / 2 + Math.random() * roadLength * 0.3; enemyCar.position.x = (Math.random() < 0.5 ? -1 : 1) * roadWidth / 4 * (0.6 + Math.random()*0.4); } try { enemyBox.setFromObject(enemyCar); } catch(e){} }
+
+                // --- Player Car Controls & Camera (Use delta time for consistency) ---
+                if (carModel && carBaseY > 0) {
+                    let carHalfWidth = 1.0; try { playerBox.setFromObject(carModel); carHalfWidth = (playerBox.max.x - playerBox.min.x) / 2; } catch(e){}
+                    const maxBounds = roadWidth / 2 - kerbWidth - carHalfWidth - 0.1;
+                    const moveAmount = carMoveSpeed * delta * 60; // Scale horizontal movement by delta
+                    if (moveLeft && carModel.position.x > -maxBounds) { carModel.position.x -= moveAmount; } // Original logic: Right key -> moveLeft flag -> move negative X
+                    if (moveRight && carModel.position.x < maxBounds) { carModel.position.x += moveAmount; } // Original logic: Left key -> moveRight flag -> move positive X
+                    carModel.position.x = Math.max(-maxBounds, Math.min(maxBounds, carModel.position.x));
+                    try { playerBox.setFromObject(carModel); } catch(e) {} // Update after move
+
+                    // Smooth Camera Follow
+                    if (camera) {
+                        const targetCameraX = carModel.position.x * 0.4; // Follow horizontally
+                        const cameraLagFactor = 0.08; // Smoothing factor
+                        camera.position.x += (targetCameraX - camera.position.x) * cameraLagFactor; // Smooth horizontal follow
+                        camera.position.z = carModel.position.z - 7; // Maintain fixed distance behind
+                        // Smooth lookAt adjustment - helps reduce jitter
+                        const lookAtTarget = new THREE.Vector3(carModel.position.x, carBaseY + 1, carModel.position.z + 5);
+                        camera.lookAt(lookAtTarget);
+                     }
+                }
+
+                // --- Collision Detection ---
+                 if (carModel && !playerBox.isEmpty()) {
+                     if (enemyCar && !enemyBox.isEmpty() && playerBox.intersectsBox(enemyBox)) { triggerGameOver(); return; }
+                     obstacles.forEach(obstacle => { if (!obstacle.visible) return; try { obstacleBox.setFromObject(obstacle); if (!obstacleBox.isEmpty() && playerBox.intersectsBox(obstacleBox)) { triggerGameOver(); return; } } catch(e){} });
+                 }
+
+                // --- Render ---
+                if (renderer && scene && camera) { renderer.render(scene, camera); }
+
+            } catch (error) {
+                console.error("Error in animate loop:", error); isGameOver = true;
+                if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null;
+                if(loadingScreen && loadingScreen.style.display === 'none') { loadingScreen.textContent = "Runtime Error!"; loadingScreen.style.display = 'flex'; loadingScreen.classList.remove('hidden'); loadingScreen.style.opacity = 1; }
+            }
+        }
+
+        // ==================================================
+        // INITIALIZATION CALLS (After functions defined)
+        // ==================================================
+        console.log("Script execution reaching initialization calls...");
+
+        // --- Loading Manager Setup ---
+        loadingManager.onLoad = () => {
+           // Texture loader is already created globally now
+           console.log("LoadingManager: All resources loaded!");
+            if(loadingScreen) loadingScreen.classList.add('hidden');
+            setTimeout(() => {
+                console.log("LoadingManager: Hiding loading screen, showing start screen.");
+                if (loadingScreen) { loadingScreen.style.display = 'none'; }
+                else { console.error("LoadingManager.onLoad: loadingScreen element not found!"); }
+
+                if(startScreen) { startScreen.style.display = 'block'; }
+                else { console.error("LoadingManager.onLoad: startScreen element not found!"); }
+
+                // Ensure startBackground is handled correctly (might be behind loading)
+                if(startBackground) { startBackground.style.display = 'block'; } // Or potentially hide it if start screen covers all
+
+                displayHighScore(); updateAudioVolumes();
+                console.log("LoadingManager: Start screen should be visible now.");
+            }, 600); // Delay matches CSS transition
+        };
+        loadingManager.onError = (url) => { console.error(`LoadingManager: Error loading ${url}`); if(loadingScreen) { loadingScreen.textContent = `Error loading asset! Check console.`; loadingScreen.style.opacity = 1; loadingScreen.classList.remove('hidden'); } };
+        loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => { const progress = Math.round((itemsLoaded / itemsTotal) * 100); if(loadingScreen) loadingScreen.textContent = `Loading ${progress}%...`;};
+
+        // --- Start the process ---
+        loadHighScore();
+        init(); // Create scene, objects, load models (async)
+        setupControls(); // Add event listeners
+
+        console.log("Initialization sequence called. Waiting for loading manager...");
+
+    </script>
+</body>
+</html>
